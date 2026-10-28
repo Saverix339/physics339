@@ -1,13 +1,20 @@
-use glium::{DrawParameters, IndexBuffer, Program, Surface, glutin::surface::WindowSurface, index::NoIndices, uniform, winit::{application::ApplicationHandler, event::WindowEvent, event_loop::{ActiveEventLoop, ControlFlow}, window::Window}};
+use std::{time::Instant, vec};
+
+use glium::{DrawParameters, IndexBuffer, Program, Surface, glutin::surface::WindowSurface, uniform, winit::{application::ApplicationHandler, event::WindowEvent, event_loop::{ActiveEventLoop, ControlFlow}, window::Window}};
 use nalgebra::{Matrix4, Perspective3, Translation3, Rotation3, Vector3};
 
 mod vertex_struct;
 mod rigidbody;
 use vertex_struct::{Vert, VERTEX_SHADER_GLSL, FRAGMENT_SHADER_GLSL};
-use rigidbody::{Mesh, cube};
+use rigidbody::cube;
 
+use crate::rigidbody::{Mesh, GpuMesh};
 
-
+#[derive(Default)]
+pub struct Scene {
+    meshes: Vec<Mesh>,
+    points: Vec<Vert>,
+}
 
 struct App {
     window: Window,
@@ -16,7 +23,9 @@ struct App {
     indices: IndexBuffer<u16>,
     program: Program,
     draw_parameters: DrawParameters<'static>,
-    t: f64, //time passed
+    t: Instant, //time passed
+
+    scene: Scene,
 }
 
 impl App{
@@ -24,11 +33,13 @@ impl App{
 }
 
 fn compute_mvp(w_ratio: f32, t: f32) -> [[f32; 4]; 4]{
-    let proj: Matrix4<f32> = Perspective3::new(w_ratio, 60.0_f32.to_radians(), 0.1, 100.0).to_homogeneous();
+    let proj: Matrix4<f32> = Perspective3::new(w_ratio, 50.0_f32.to_radians(), 0.1, 100.0).to_homogeneous();
     let view = Translation3::new(0.0, 0.0, -3.0).to_homogeneous();
-    let model = Rotation3::from_axis_angle(&Vector3::y_axis(), t).to_homogeneous();
+    let model = Rotation3::from_axis_angle(&Vector3::y_axis(), t*2.0_f32).to_homogeneous();
     (proj * view * model).data.0
 }
+
+
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -47,13 +58,20 @@ impl ApplicationHandler for App {
                 self.display.resize(window_size.into());
             },
             WindowEvent::RedrawRequested => { //called each frame
-                let x_offs = self.t.sin() * 0.3;
-                let y_offs = self.t.cos() * 0.3;
+                /* let x_offs = self.t.sin() * 0.3;
+                let y_offs = self.t.cos() * 0.3; */
+                let elapsed = self.t.elapsed().as_secs_f32(); //tempo totale trascorso dall'avvio
                 let mut frame = self.display.draw();
                 frame.clear_color_and_depth((0.0, 0.0, 1.0, 1.0), 1.0);
                 let (w, h): (f32, f32) = self.window.inner_size().into();
                 let aspect= if h > 0.0 { w as f32 / h as f32 } else { return; };
-                frame.draw(&self.vertex_buffer, &self.indices, &self.program, &uniform!{ mvp: compute_mvp(aspect, self.t as f32) },&self.draw_parameters).unwrap();
+                frame.draw(
+                    &self.vertex_buffer, 
+                    &self.indices, 
+                    &self.program, 
+                    &uniform!{ mvp: compute_mvp(aspect, elapsed) },
+                    &self.draw_parameters
+                ).unwrap();
 
                 frame.finish().expect("frame");
             },
@@ -62,7 +80,6 @@ impl ApplicationHandler for App {
     }
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         // self.step_physics();
-        self.t += 0.0001;
         self.window.request_redraw();
     }
 
@@ -84,7 +101,16 @@ fn main() {
     let event_loop = glium::winit::event_loop::EventLoop::builder().build().expect("eventloop");
     let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new().build(&event_loop);
     
-    let mesh = cube(1.0, [1.0, 0.5, 0.0, 1.0]);
+    let mut scene = Scene {
+        meshes : Vec::new(),
+        points : Vec::new(),
+    };
+    let cube1 = cube(1.0, [1.0, 0.5, 0.0, 1.0]);
+    let cube2 = cube1.clone();
+    scene.meshes.push(cube(1.0, [1.0, 0.5, 0.0, 1.0]));
+
+    scene.meshes.push(cube(1.0, [1.0, 0.5, 0.0, 1.0]));
+
     let vertex_buffer = glium::VertexBuffer::new(&display, &mesh.verts).unwrap();
     let indices = glium::IndexBuffer::new(&display, glium::index::PrimitiveType::TrianglesList, &mesh.indices).unwrap();
     let draw_parameters = glium::DrawParameters {
@@ -96,9 +122,9 @@ fn main() {
     ..Default::default()
     };
     let program = glium::Program::from_source(&display, VERTEX_SHADER_GLSL, FRAGMENT_SHADER_GLSL, None).unwrap();
-    let t = 0.0_f64;
+    let t = Instant::now();
 
-    let mut app = App {window, display, vertex_buffer, indices, program, draw_parameters, t};
+    let mut app = App {window, display, vertex_buffer, indices, program, draw_parameters, t, scene: scene};
     
     event_loop.run_app(&mut app).expect("run_app");
 }

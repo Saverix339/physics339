@@ -1,10 +1,47 @@
+use glium::{IndexBuffer, backend::{Facade, glutin}, glutin::surface::WindowSurface};
 use nalgebra::{Matrix3, Vector3};
 
 
+
 use crate::vertex_struct::Vert;
+
+type Display = glium::Display<WindowSurface>;
+
+#[derive(Clone)]
 pub struct Mesh {
     pub verts: Vec<Vert>,
     pub indices: Vec<u16>,
+}
+impl Mesh {
+    fn translate(&mut self, direction: [f32; 3]){
+        let tr = Vector3::from(direction);
+        self.verts.iter_mut().for_each(|v| {
+            v.position = (Vector3::from(v.position) + tr).into();
+        });
+    }
+}
+
+pub struct GpuMesh { 
+    vertex_buffer: glium::VertexBuffer<Vert>,
+    indices: IndexBuffer<u16>
+}
+
+impl GpuMesh {
+    fn load(display: &Display, mesh: &Mesh) -> Self {
+        //let context = display.get_context().clone();
+        let vertex_buffer = glium::VertexBuffer::new(display, &mesh.verts)
+        .expect("Vertex Buffer Load fail.");
+        let indices = glium::IndexBuffer::new(
+            display,
+            glium::index::PrimitiveType::TrianglesList,
+            &mesh.indices,
+        ).expect("Index Buffer Load fail.");
+        Self {
+            vertex_buffer,
+            indices
+        }
+    }
+    
 }
 
 pub fn cube(h: f32, color: [f32; 4]) -> Mesh {
