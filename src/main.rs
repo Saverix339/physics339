@@ -1,6 +1,9 @@
 use std::{time::Instant, vec};
 
-use glium::{DrawParameters, IndexBuffer, Program, Surface, glutin::surface::WindowSurface, uniform, winit::{application::ApplicationHandler, event::WindowEvent, event_loop::{ActiveEventLoop, ControlFlow}, window::Window}};
+use glium::{DrawParameters, IndexBuffer, Program, Surface, backend::glutin::SimpleWindowBuilder, glutin::{config::ConfigTemplateBuilder, surface::WindowSurface}, uniform, winit::{application::ApplicationHandler, event::WindowEvent, 
+        event_loop::{ActiveEventLoop, ControlFlow}, window::Window
+    }
+};
 use nalgebra::{Matrix4, Perspective3, Translation3, Rotation3, Vector3};
 
 mod vertex_struct;
@@ -14,6 +17,8 @@ use crate::rigidbody::{Mesh, GpuMesh};
 pub struct Scene {
     meshes: Vec<Mesh>,
     points: Vec<Vert>,
+
+    gpu_meshes: Vec<GpuMesh>,
 }
 
 struct App {
@@ -65,14 +70,16 @@ impl ApplicationHandler for App {
                 frame.clear_color_and_depth((0.0, 0.0, 1.0, 1.0), 1.0);
                 let (w, h): (f32, f32) = self.window.inner_size().into();
                 let aspect= if h > 0.0 { w as f32 / h as f32 } else { return; };
-                frame.draw(
+                /* frame.draw(
                     &self.vertex_buffer, 
                     &self.indices, 
                     &self.program, 
                     &uniform!{ mvp: compute_mvp(aspect, elapsed) },
                     &self.draw_parameters
-                ).unwrap();
-
+                ).unwrap(); */
+                self.scene.gpu_meshes.iter().for_each(|m| {
+                    m.draw(&mut frame, &self.program, &self.draw_parameters, compute_mvp(aspect, elapsed));
+                });
                 frame.finish().expect("frame");
             },
             _ => (),
@@ -99,20 +106,23 @@ fn triangle_at(pos: [f32; 2]) -> Vec<Vert>{
 
 fn main() {
     let event_loop = glium::winit::event_loop::EventLoop::builder().build().expect("eventloop");
-    let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new().build(&event_loop);
-    
+    let (window, display) = SimpleWindowBuilder::new().with_config_template_builder(ConfigTemplateBuilder::new().with_alpha_size(0)).build(&event_loop);
     let mut scene = Scene {
         meshes : Vec::new(),
         points : Vec::new(),
+        gpu_meshes : Vec::new(),
     };
     let cube1 = cube(1.0, [1.0, 0.5, 0.0, 1.0]);
     let cube2 = cube1.clone();
-    scene.meshes.push(cube(1.0, [1.0, 0.5, 0.0, 1.0]));
+    scene.meshes.push(&cube1);
 
-    scene.meshes.push(cube(1.0, [1.0, 0.5, 0.0, 1.0]));
+    scene.meshes.push(&cube2);
+    scene.gpu_meshes = scene.meshes.iter().map(|m| GpuMesh::load(&display, m)).collect();
 
-    let vertex_buffer = glium::VertexBuffer::new(&display, &mesh.verts).unwrap();
-    let indices = glium::IndexBuffer::new(&display, glium::index::PrimitiveType::TrianglesList, &mesh.indices).unwrap();
+    let gpu_buffer: Vec<Vert> = scene.gpu_meshes.iter().flat_map(|m| m.get_vertex_buffer().read().unwrap().to_vec()).collect::<Vec<_>>();
+    let vertex_buffer = glium::VertexBuffer::dynamic(&display, &gpu_buffer).unwrap();
+    let gpu_indices: Vec<u16> = scene.gpu_meshes.iter().flat_map(|m| m.get_indices().read().unwrap().to_vec()).collect::<Vec<_>>();
+    let indices = glium::IndexBuffer::new(&display, glium::index::PrimitiveType::TrianglesList, &gpu_indices).unwrap();
     let draw_parameters = glium::DrawParameters {
     depth: glium::Depth {
         test: glium::draw_parameters::DepthTest::IfLess,
